@@ -8,6 +8,7 @@ from app.domain.product_service import (
     update_product,
 )
 from app.infrastructure.database import SessionLocal
+from app.api.dependencies import admin_required
 from typing import Optional
 
 router = APIRouter()
@@ -26,7 +27,9 @@ def get_db():
 
 
 @router.post("/", response_model=ProductResponse, status_code=201)
-def create_product_endpoint(product: ProductCreate, db: Session = Depends(get_db)):
+def create_product_endpoint(
+    product: ProductCreate, db: Session = Depends(get_db), user=Depends(admin_required)
+):
     return create_product(product, db)
 
 
@@ -58,19 +61,44 @@ def list_products_endpoint(
     name: Optional[str] = Query(None, description="Filter by product name"),
     min_price: Optional[float] = Query(None, ge=0, description="Minimum price"),
     max_price: Optional[float] = Query(None, ge=0, description="Maximum price"),
+    category_id: Optional[int] = Query(None),
+    tag_id: Optional[int] = Query(None),
     sort_by: Optional[str] = Query("id", description="Sort field:id, name, price"),
     sort_order: Optional[str] = Query("asc", description="Sort order: asc or desc"),
+    limit: int = Query(50, ge=1, le=100, description="Number of products to return"),
+    offset: int = Query(0, ge=0, description="Number of products to skip"),
 ):
-    return list_products(db, name, min_price, max_price, sort_by, sort_order)
+    return list_products(
+        db,
+        name,
+        min_price,
+        max_price,
+        sort_by,
+        sort_order,
+        limit,
+        offset,
+        category_id,
+        tag_id,
+    )
 
 
 @router.delete("/{product_id}", status_code=204)
-def delete_product_endpoint(product_id: int, db: Session = Depends(get_db)):
+def delete_product_endpoint(
+    product_id: int, db: Session = Depends(get_db), user=Depends(admin_required)
+):
     return delete_product(product_id, db)
 
 
 @router.patch("/{product_id}", response_model=ProductResponse)
 def update_product_endpoint(
-    product_id: int, updates: ProductUpdate, db: Session = Depends(get_db)
+    product_id: int,
+    updates: ProductUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(admin_required),
 ):
     return update_product(product_id, updates, db)
+
+
+"""Only admins can create/update/delete
+
+Public users can still GET /products"""
