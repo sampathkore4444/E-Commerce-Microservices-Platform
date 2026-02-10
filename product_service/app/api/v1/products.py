@@ -6,10 +6,13 @@ from app.domain.product_service import (
     list_products,
     delete_product,
     update_product,
+    adjust_stock,
 )
 from app.infrastructure.database import SessionLocal
 from app.api.dependencies import admin_required
 from typing import Optional
+from pydantic import BaseModel
+
 
 router = APIRouter()
 
@@ -38,23 +41,6 @@ def create_product_endpoint(
 #     return list_products(db)
 
 
-"""Search & Filtering Products
-
-We want:
-
-Endpoint: GET /api/v1/products (reuse the listing endpoint)
-
-Filters:
-
-name (partial match)
-
-min_price / max_price
-
-Sorting: Optional, e.g., by price or name
-
-Pagination: Optional, to prepare for large datasets"""
-
-
 @router.get("/", response_model=list[ProductResponse])
 def list_products_endpoint(
     db: Session = Depends(get_db),
@@ -68,6 +54,22 @@ def list_products_endpoint(
     limit: int = Query(50, ge=1, le=100, description="Number of products to return"),
     offset: int = Query(0, ge=0, description="Number of products to skip"),
 ):
+    """Search & Filtering Products
+
+    We want:
+
+    Endpoint: GET /api/v1/products (reuse the listing endpoint)
+
+    Filters:
+
+    name (partial match)
+
+    min_price / max_price
+
+    Sorting: Optional, e.g., by price or name
+
+    Pagination: Optional, to prepare for large datasets"""
+
     return list_products(
         db,
         name,
@@ -97,6 +99,31 @@ def update_product_endpoint(
     user=Depends(admin_required),
 ):
     return update_product(product_id, updates, db)
+
+
+class StockAdjustment(BaseModel):
+    quantity: int  # positive or negative
+
+
+@router.post("/{product_id}/stock", status_code=200)
+def adjust_stock_endpoint(
+    product_id: int,
+    adjustment: StockAdjustment,
+    db: Session = Depends(get_db),
+    user=Depends(admin_required),
+):
+    """Endpoint to update stock levels
+
+    This allows admins to adjust inventory levels directly.
+
+    The quantity can be positive (to add stock) or negative (to remove stock).
+
+    Endpoint allows increment or decrement
+
+    Only admins can modify stock
+    """
+
+    return adjust_stock(product_id, adjustment.quantity, db)
 
 
 """Only admins can create/update/delete

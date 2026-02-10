@@ -30,6 +30,7 @@ class Product(Base):
     name = Column(String, unique=True, nullable=False)
     description = Column(String, nullable=True)
     price = Column(Float, nullable=False)
+    stock = Column(Integer, nullable=False, default=0)  # New field
 
     category_id = Column(Integer, ForeignKey("categories.id", nullable=True))
     category = relationship("Category")
@@ -45,6 +46,14 @@ Many-to-many: Product ↔ Tags
 
 Backrefs allow easy reverse lookup
 
+"""
+
+"""
+1. stock defaults to 0
+
+2. Updated ORM for atomic updates
+
+3. In a real system, we might want to implement more complex inventory management (e.g., reserved stock, backorders)
 """
 
 

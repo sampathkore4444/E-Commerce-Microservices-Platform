@@ -7,6 +7,7 @@ class ProductCreate(BaseModel):
     name: str
     description: Optional[str] = None
     price: float
+    stock: int = Field(0, ge=0)  # New field with default value and validation
     category_id: Optional[int] = None
     tag_ids: Optional[List[int]] = []
 
@@ -27,6 +28,8 @@ class ProductUpdate(BaseModel):
     price: Optional[float] = Field(
         None, gt=0
     )  # Price must be positive if provided # Using Optional fields allows partial updates # gt=0 ensures price > 0
+    stock: Optional[int] = Field(None, ge=0)  # Stock must be non-negative if provided
+
     # category_id: Optional[int] = None
     category_id: Optional[int] = None
     tag_ids: Optional[List[int]] = []

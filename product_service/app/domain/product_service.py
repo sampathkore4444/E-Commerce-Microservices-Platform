@@ -9,6 +9,7 @@ from app.infrastructure.models import Product, Tag
 from app.core.errors import DomainError
 from sqlalchemy.orm import Session
 from typing import Optional
+from app.infrastructure.event_publisher import publish_event
 
 
 class ProductAlreadyExists(DomainError):
@@ -19,6 +20,11 @@ class ProductAlreadyExists(DomainError):
 class ProductNotFound(DomainError):
     code = "PRODUCT_NOT_FOUND"
     message = "Product not found"
+
+
+class InsufficientStock(DomainError):
+    code = "INSUFFICIENT_STOCK"
+    message = "Not enough stock available"
 
 
 def create_product(product: ProductCreate, db: Session) -> ProductResponse:
@@ -42,20 +48,16 @@ def create_product(product: ProductCreate, db: Session) -> ProductResponse:
     db.commit()
     db.refresh(db_product)
 
-    return ProductResponse(
-        id=db.product_id,
-        name=db_product.name,
-        description=db_product.description,
-        price=db_product.price,
-        category=(
-            CategoryResponse(id=db_product.category.id, name=db_product.category.name)
-            if product.category_id
-            else None
-        ),
-        tags=[
-            TagResponse(id=tag.id, name=tag.name) for tag in db_product.tags
-        ],  # Include tags in response
+    response = _product_to_response(db_product)
+
+    # Publish event after successful creation
+    publish_event(
+        exchange="product_events",
+        event_type="product_created",
+        data=response.model_dump(),
     )
+
+    return response
 
 
 # def list_products(db: Session):
@@ -152,6 +154,13 @@ def delete_product(product_id: int, db: Session):
     db.delete(product)
     db.commit()
 
+    # publish event after successful deletion
+    publish_event(
+        exchange="product_events",
+        event_type="product_deleted",
+        data={"id": product_id},
+    )
+
 
 def update_product(product_id: int, updates: ProductUpdate, db: Session):
     product = db.query(Product).filter(Product.id == product_id).first()
@@ -185,6 +194,19 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session):
     db.commit()
     db.refresh(product)
 
+    resopnse = _product_to_response(product)
+
+    # publish event after successful update
+    publish_event(
+        exchange="product_events",
+        event_type="product_updated",
+        data=resopnse.model_dump(),
+    )
+
+    return resopnse
+
+
+def _product_to_response(product: Product) -> ProductResponse:
     return ProductResponse(
         id=product.id,
         name=product.name,
@@ -192,10 +214,76 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session):
         price=product.price,
         category=(
             CategoryResponse(id=product.category.id, name=product.category.name)
-            if product.category_id
+            if product.category
             else None
         ),
-        tags=[
-            TagResponse(id=tag.id, name=tag.name) for tag in product.tags
-        ],  # Include tags in response
+        tags=[TagResponse(id=tag.id, name=tag.name) for tag in product.tags],
     )
+
+
+def adjust_stock(product_id: int, quantity: int, db: Session):
+    """
+    Adjust stock by a positive or negative quantity.
+    Negative quantity = decrement stock.
+    with_for_update() ensures row-level locking → prevents race conditions
+    Event is published asynchronously for other services
+    """
+    product = (
+        db.query(Product).filter(Product.id == product_id).with_for_update().first()
+    )  # with_for_update() ensures row-level locking → prevents race conditions
+
+    if not product:
+        raise ProductNotFound()
+
+    if product.stock + quantity < 0:
+        raise InsufficientStock()
+
+    product.stock += quantity
+    db.commit()
+    db.refresh(product)
+
+    # publish event after successful stock adjustment
+    publish_event(
+        exchange="product_events",
+        event_type="product_stock_adjusted",
+        data={
+            "id": product.id,
+            "stock": product.stock,
+        },
+    )
+
+    return _product_to_response(product)
+
+
+"""
+✅ Notes:
+
+1. Event data contains product info for created/updated events
+
+2. Deleted event only needs product ID
+
+3. Keeps domain layer aware of events, but publishing is a thin infrastructure hook 
+
+4. model_dump() is used to convert Pydantic model to dict for event data 
+
+5. This allows other services to react to product changes without tight coupling
+
+6. In a real system, we might want to include more context in events (e.g., user who made the change)
+
+7. Error handling for event publishing is not shown here but should be considered in production
+
+8. This approach supports eventual consistency across microservices while keeping the product service as the source of truth for product data
+
+9. Future events (e.g., product_viewed) can be added in a similar way without changing existing logic
+
+10. This design promotes a clean separation of concerns while enabling powerful integrations across the ecosystem
+
+11. This is a simple implementation of event publishing. In a production system, you would want to handle potential failures in the event publishing process (e.g., retry logic, dead-letter queues).
+
+12. The event data structure can be standardized across the system to ensure consistency and ease of consumption by other services.
+
+13. This design allows for easy extension in the future, such as adding more event types or including additional data in the events without affecting the core product logic.
+
+14. Overall, this approach enhances the scalability and maintainability of the system while enabling rich interactions between microservices through events.
+
+"""
