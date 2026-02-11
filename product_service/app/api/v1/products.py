@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
 from app.domain.product_service import (
