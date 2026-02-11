@@ -1,7 +1,15 @@
-from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
-from app.infrastructure.models import Product
+from app.schemas.product import (
+    ProductCreate,
+    ProductResponse,
+    ProductUpdate,
+    CategoryResponse,
+    TagResponse,
+)
+from app.infrastructure.models import Product, Tag
 from app.core.errors import DomainError
 from sqlalchemy.orm import Session
+from typing import Optional
+from app.infrastructure.event_publisher import publish_event
 
 
 class ProductAlreadyExists(DomainError):
@@ -14,27 +22,120 @@ class ProductNotFound(DomainError):
     message = "Product not found"
 
 
+class InsufficientStock(DomainError):
+    code = "INSUFFICIENT_STOCK"
+    message = "Not enough stock available"
+
+
 def create_product(product: ProductCreate, db: Session) -> ProductResponse:
     existing = db.query(Product).filter(Product.name == product.name).first()
     if existing:
         raise ProductAlreadyExists()
 
     db_product = Product(
-        name=product.name, description=product.description, price=product.price
+        name=product.name,
+        description=product.description,
+        price=product.price,
+        category_id=product.category_id,
     )
+
+    # Attach tags if provided
+    if product.tag_ids:
+        tags = db.query(Tag).filter(Tag.id.in_(product.tag_ids)).all()
+        db_product.tags = tags
+
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
-    return ProductResponse(
-        id=db.product_id,
-        name=db_product.name,
-        description=db_product.description,
-        price=db_product.price,
+
+    response = _product_to_response(db_product)
+
+    # Publish event after successful creation
+    publish_event(
+        exchange="product_events",
+        event_type="product_created",
+        data=response.model_dump(),
     )
 
+    return response
 
-def list_products(db: Session):
-    products = db.query(Product).all()
+
+# def list_products(db: Session):
+#     products = db.query(Product).all()
+#     return [
+#         ProductResponse(
+#             id=product.id,
+#             name=product.name,
+#             description=product.description,
+#             price=product.price,
+#         )
+#         for product in products
+#     ]
+
+"""Update Domain Logic
+
+✅ Notes:
+
+Uses SQLAlchemy’s ilike for case-insensitive partial matches
+
+Sorting is dynamic but safe (default to id)
+
+Filters are optional — endpoint can list all products if no query params
+"""
+
+"""
+✅ Notes:
+
+Pagination is fully integrated with filters and sorting
+
+Domain layer still handles all logic — API just passes parameters
+
+Safe defaults and caps prevent abuse
+"""
+
+
+def list_products(
+    db: Session,
+    name: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    category_id: Optional[int] = None,
+    tag_id: Optional[int] = None,
+    sort_by: Optional[str] = "id",
+    sort_order: Optional[str] = "asc",
+    limit: int = 50,
+    offset: int = 0,
+):
+    products = db.query(Product)
+
+    # Apply filters
+    if name:
+        query = query.filter(Product.name.ilike(f"%{name}%"))
+
+    if min_price:
+        query = query.filter(Product.price >= min_price)
+
+    if max_price:
+        query == query.filter(Product.price <= max_price)
+
+    if category_id:
+        query = query.filter(Product.category_id == category_id)
+
+    if tag_id:
+        query = query.join(Product.tags).filter(Tag.id == tag_id)
+
+    # Apply sorting
+    sort_column = getattr(Product, sort_by, Product.id)
+    if sort_order.lower() == "desc":
+        sort_column = sort_column.desc()
+
+    query = query.order_by(sort_column)
+
+    # Apply pagination
+    query = query.offset(offset).limit(limit)
+
+    products = query.all()
+
     return [
         ProductResponse(
             id=product.id,
@@ -52,6 +153,13 @@ def delete_product(product_id: int, db: Session):
         raise DomainError(message="Product not found")
     db.delete(product)
     db.commit()
+
+    # publish event after successful deletion
+    publish_event(
+        exchange="product_events",
+        event_type="product_deleted",
+        data={"id": product_id},
+    )
 
 
 def update_product(product_id: int, updates: ProductUpdate, db: Session):
@@ -76,12 +184,106 @@ def update_product(product_id: int, updates: ProductUpdate, db: Session):
     if updates.price is not None:
         product.price = updates.price
 
+    if updates.category_id is not None:
+        product.category_id = updates.category_id
+
+    if updates.tag_ids is not None:
+        tags = db.query(Tag).filter(Tag.id.in_(updates.tag_ids)).all()
+        product.tags = tags
+
     db.commit()
     db.refresh(product)
 
+    resopnse = _product_to_response(product)
+
+    # publish event after successful update
+    publish_event(
+        exchange="product_events",
+        event_type="product_updated",
+        data=resopnse.model_dump(),
+    )
+
+    return resopnse
+
+
+def _product_to_response(product: Product) -> ProductResponse:
     return ProductResponse(
         id=product.id,
         name=product.name,
         description=product.description,
         price=product.price,
+        category=(
+            CategoryResponse(id=product.category.id, name=product.category.name)
+            if product.category
+            else None
+        ),
+        tags=[TagResponse(id=tag.id, name=tag.name) for tag in product.tags],
     )
+
+
+def adjust_stock(product_id: int, quantity: int, db: Session):
+    """
+    Adjust stock by a positive or negative quantity.
+    Negative quantity = decrement stock.
+    with_for_update() ensures row-level locking → prevents race conditions
+    Event is published asynchronously for other services
+    """
+    product = (
+        db.query(Product).filter(Product.id == product_id).with_for_update().first()
+    )  # with_for_update() ensures row-level locking → prevents race conditions
+
+    if not product:
+        raise ProductNotFound()
+
+    if product.stock + quantity < 0:
+        raise InsufficientStock()
+
+    product.stock += quantity
+    db.commit()
+    db.refresh(product)
+
+    # publish event after successful stock adjustment
+    publish_event(
+        exchange="product_events",
+        event_type="product_stock_adjusted",
+        data={
+            "id": product.id,
+            "stock": product.stock,
+        },
+    )
+
+    return _product_to_response(product)
+
+
+"""
+✅ Notes:
+
+1. Event data contains product info for created/updated events
+
+2. Deleted event only needs product ID
+
+3. Keeps domain layer aware of events, but publishing is a thin infrastructure hook 
+
+4. model_dump() is used to convert Pydantic model to dict for event data 
+
+5. This allows other services to react to product changes without tight coupling
+
+6. In a real system, we might want to include more context in events (e.g., user who made the change)
+
+7. Error handling for event publishing is not shown here but should be considered in production
+
+8. This approach supports eventual consistency across microservices while keeping the product service as the source of truth for product data
+
+9. Future events (e.g., product_viewed) can be added in a similar way without changing existing logic
+
+10. This design promotes a clean separation of concerns while enabling powerful integrations across the ecosystem
+
+11. This is a simple implementation of event publishing. In a production system, you would want to handle potential failures in the event publishing process (e.g., retry logic, dead-letter queues).
+
+12. The event data structure can be standardized across the system to ensure consistency and ease of consumption by other services.
+
+13. This design allows for easy extension in the future, such as adding more event types or including additional data in the events without affecting the core product logic.
+
+14. Overall, this approach enhances the scalability and maintainability of the system while enabling rich interactions between microservices through events.
+
+"""
