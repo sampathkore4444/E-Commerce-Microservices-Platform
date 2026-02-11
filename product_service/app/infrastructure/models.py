@@ -65,3 +65,50 @@ class User(Base):
     hashed_password = Column(String, unique=True, nullable=False)
     role = Column(String, default="user")  # "user" or "admin"
     is_active = Column(Boolean, default=True)
+
+
+"""
+now we’ll implement Promotions & Discounts, which is essential for an e-commerce product service. We’ll design it in a clean, extensible way so future promo types can be added without breaking the API.
+
+Step 9 — Promotions & Discounts
+
+Goals:
+
+Support multiple discount types:
+
+Fixed amount (e.g., $20 off)
+
+Percentage (e.g., 10% off)
+
+Apply discounts per product
+
+Ensure stackable rules are handled correctly
+
+Expose endpoints to create, update, list, and remove promotions
+
+Optionally publish events when promotions change
+"""
+
+
+class Promotion(Base):
+    """
+    Each promotion belongs to one product
+
+    discount_type distinguishes between fixed and percentage discounts
+
+    active allows enabling/disabling promotions
+    """
+
+    __table_name__ = "promotions"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+    discount_type = Column(String, nullable=False)  # "Fixed" or "Percentage"
+    discount_value = Column(
+        Float, nullable=False
+    )  # e.g., 20 for $20 off or 10 for 10% off
+    active = Column(Boolean, default=True)
+
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+
+    # Relationship back to Parent (Product)
+    product = relationship("Product", back_populates="promotions")
