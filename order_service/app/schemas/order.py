@@ -44,3 +44,16 @@ class OrderResponse(BaseModel):
 # In a microservices architecture, this separation also allows us to evolve the internal data models of our services without affecting the external API contracts, providing greater flexibility and resilience in the face of changing business requirements.
 # This design also facilitates better testing and documentation, as we can clearly define the expected input and output for each endpoint, making it easier to write unit tests and generate API documentation that accurately reflects the behavior of our service.
 # In summary, using separate request and response models is a best practice in API design that enhances clarity, maintainability, security, and flexibility, ultimately leading to a better developer experience and a more robust service.
+
+
+class CheckoutRequest(BaseModel):
+    order_id: int
+    payment_method: str  # e.g., "stripe", "paypal"
+    payment_token: str  # token from payment gateway
+
+
+class CheckoutResponse(BaseModel):
+    order_id: int
+    total_amount: float
+    status: str
+    payment_status: str

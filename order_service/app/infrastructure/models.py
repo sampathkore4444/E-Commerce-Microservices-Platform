@@ -11,7 +11,9 @@ class Order(Base):
     total_amount = Column(Float, nullable=False)
     status = Column(
         String, nullable=False, default="pending"
-    )  # pending, paid, cancelled
+    )  # pending, paid, cancelled, fulfilled
+    payment_status = Column(String, default="unpaid")  # unpaid, paid, failed
+    payment_method = Column(String, nullable=True)
     created_at = Column(String, default=datetime.now().isoformat())
 
     items = relationship(
