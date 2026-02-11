@@ -32,7 +32,6 @@ def publish_event(exchange: str, event_type: str, data: dict):
     except Exception as e:
         logger.error(f"Failed to publish event {event_type}: {e}")
 
-pls implement using celery instead of pika for better reliability and connection management.
 
 def publish_event(exchange: str, event_type: str, data: dict):
     """Publish an event to RabbitMQ using Celery for better reliability and connection management."""
@@ -67,6 +66,7 @@ def publish_event(exchange: str, event_type: str, data: dict):
             logger.error(f"Failed to publish event {event_type}: {e}")
 
     send_event.delay(exchange, event_type, data)
+
 
 """
 1. Simple fire-and-forget
