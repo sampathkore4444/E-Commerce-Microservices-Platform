@@ -5,6 +5,7 @@ from app.schemas.promotion import PromotionCreate, PromotionUpdate, PromotionRes
 from app.domain.promotion_service import (
     create_promotion,
     list_promotions,
+    get_promotions_for_product,
     update_promotion,
     delete_promotion,
 )
@@ -38,6 +39,13 @@ def create_promotion_endpoint(
 @router.get("/", response_model=List[PromotionResponse])
 def list_promotions_endpoint(db: Session = Depends(get_db)):
     return list_promotions(db)
+
+
+@router.get("/product/{product_id}", response_model=List[PromotionResponse])
+def get_promotions_for_product_endpoint(product_id: int, db: Session = Depends(get_db)):
+    return get_promotions_for_product(
+        db, product_id=product_id, active_only=True
+    )  # we can modify list_promotions to accept product_id filter if needed
 
 
 @router.patch("/{promo_id}", response_model=PromotionResponse)

@@ -70,6 +70,28 @@ def list_promotions(db: Session, active_only: bool = True) -> list[PromotionResp
     ]
 
 
+def get_promotions_for_product(
+    db: Session, product_id: int, active_only: bool = True
+) -> list[PromotionResponse]:
+    promos = (
+        db.query(Promotion)
+        .filter(Promotion.product_id == product_id, Promotion.active == active_only)
+        .all()
+    )
+
+    return [
+        PromotionResponse(
+            id=promo.id,
+            name=promo.name,
+            discount_type=promo.discount_type,
+            discount_percentage=promo.discount_value,
+            active=promo.active,
+            product_id=promo.product_id,
+        )
+        for promo in promos
+    ]
+
+
 def update_promotion(
     promo_id: int, updates: PromotionUpdate, db: Session
 ) -> PromotionResponse:
