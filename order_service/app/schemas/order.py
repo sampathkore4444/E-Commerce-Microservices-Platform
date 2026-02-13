@@ -57,3 +57,14 @@ class CheckoutResponse(BaseModel):
     total_amount: float
     status: str
     payment_status: str
+
+
+class RefundRequest(BaseModel):
+    order_id: int
+    reason: str
+
+
+class RefundResponse(BaseModel):
+    order_id: int
+    refund_status: str
+    message: str

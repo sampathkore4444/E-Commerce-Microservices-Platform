@@ -12,6 +12,7 @@ class Order(Base):
     status = Column(
         String, nullable=False, default="pending"
     )  # pending, paid, cancelled, fulfilled
+    refund_status = Column(String, default="none")  # none, requested, processed
     payment_status = Column(String, default="unpaid")  # unpaid, paid, failed
     payment_method = Column(String, nullable=True)
     created_at = Column(String, default=datetime.now().isoformat())

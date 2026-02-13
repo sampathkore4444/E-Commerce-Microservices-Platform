@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.schemas.order import OrderCreate, OrderResponse
-from app.domain.order_service import create_order
+from app.schemas.order import OrderCreate, OrderResponse, RefundRequest, RefundResponse
+from app.domain.order_service import create_order, request_refund
 from app.infrastructure.database import SessionLocal
 from app.api.dependencies import get_current_user
 
@@ -60,3 +60,20 @@ Authenticated users can checkout orders
 
 Domain layer handles payment, status updates, and event publishing
 """
+
+
+@router.post("/refund", response_model=RefundResponse)
+def refund_order_endpoint(
+    request: RefundRequest,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    order = request_refund(request.order_id, request.reason, db)
+    return RefundResponse(
+        order_id=order.id,
+        refund_status=order.refund_status,
+        message="Refund requested successfully",
+    )
+
+
+# ✅ Outcome: Users can request refunds; stock is updated and events are published.
